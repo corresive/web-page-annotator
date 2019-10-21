@@ -1,6 +1,7 @@
 from http.client import responses as status_codes
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
+import logging
 
 from bs4 import BeautifulSoup
 from tornado.gen import coroutine
@@ -8,7 +9,7 @@ from tornado.httpclient import AsyncHTTPClient, HTTPError
 from tornado.web import RequestHandler
 
 from config import Session, STATIC_ROOT
-from models import get_response, save_response, Workspace, Page
+from models import get_response, save_response, save_from_html, Workspace, Page
 from transform_html import transformed_response_body, remove_scripts_and_proxy
 
 
@@ -30,14 +31,23 @@ class ProxyHandler(RequestHandler):
                 pass
         if referer:
             headers['referer'] = referer
+        is_local_url = url.startswith("file://")
 
         session = Session()
         response = get_response(session, page, url)
         if response is None:
-            httpclient = AsyncHTTPClient()
-            response = yield httpclient.fetch(url, raise_error=False)
-            response = save_response(
-                session, page, url, response, is_main=referer is None)
+            if is_local_url:
+                _, _, path, _, _, _ = urlparse(url)
+                logging.info(f'Processing local url: {path}')
+                with open(path, 'r', encoding="utf8") as file_h:
+                    html = file_h.read()
+                response = save_from_html(session=session, page=page, url=url, html=html)
+            else:
+                logging.info(f'Processing non-local url: {url}')
+                httpclient = AsyncHTTPClient()
+                response = yield httpclient.fetch(url, raise_error=False)
+                response = save_response(
+                    session, page, url, response, is_main=referer is None)
         reason = None if response.code in status_codes else 'Unknown'
         self.set_status(response.code, reason=reason)
 
@@ -48,8 +58,13 @@ class ProxyHandler(RequestHandler):
                 'url': resource_url, 'referer': page.url,
             }))
 
-        html_transformed, body = transformed_response_body(
-            response, inject_scripts_and_proxy, proxy_url)
+        if not is_local_url:
+            html_transformed, body = transformed_response_body(
+                response, inject_scripts_and_proxy, proxy_url)
+        else:
+            html_transformed, body = transformed_response_body(
+                response, inject_scripts, proxy_url)
+
         self.write(body)
         proxied_headers = {'content-type'}  # TODO - other?
         if response.headers:
@@ -64,6 +79,14 @@ class ProxyHandler(RequestHandler):
 
 def inject_scripts_and_proxy(soup: BeautifulSoup, base_url: str, proxy_url):
     remove_scripts_and_proxy(soup, base_url=base_url, proxy_url=proxy_url)
+    inject_scripts(soup=soup, base_url=base_url, proxy_url=proxy_url)
+
+
+def inject_scripts(soup: BeautifulSoup, base_url: str, proxy_url):
+    # parameters only to keep function signature compatible
+    del base_url
+    del proxy_url
+
     body = soup.find('body')
     if not body:
         return

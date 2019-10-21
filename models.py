@@ -137,3 +137,21 @@ def save_response(session, page: Page, url: str,
     except IntegrityError:
         session.rollback()
     return response
+
+
+def save_from_html(session, page: Page, url: str,
+                   html: str) -> Response:
+    response = Response(
+        url=url,
+        page=page,
+        code=200,
+        headers=HTTPHeaders({"Content-Type": "text/html;charset=UTF-8"}),
+        body=html.encode("utf8"),
+        is_main=True,
+    )
+    session.add(response)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+    return response

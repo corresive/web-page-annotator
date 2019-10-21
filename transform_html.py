@@ -35,8 +35,7 @@ def transformed_response_body(
         except UnicodeDecodeError:
             base_url = response.url
         soup = BeautifulSoup(body, 'lxml', from_encoding=encoding)
-        html_transform(
-            soup, base_url=base_url, proxy_url=proxy_url)
+        html_transform(soup, base_url=base_url, proxy_url=proxy_url)
         head = soup.find('head')
         if head:
             head.append(soup.new_tag('meta', charset='utf8'))
