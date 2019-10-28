@@ -7,6 +7,7 @@ import tempfile
 from typing import Dict
 import zipfile
 
+from collections import defaultdict
 from sqlalchemy import create_engine
 import tornado.ioloop
 from tornado.web import Application, RequestHandler, URLSpec
@@ -75,13 +76,15 @@ class WorkspaceHandler(RequestHandler):
 
 
 def get_labeled(session: Session, ws: Workspace) -> Dict:
-    labeled = {}
-    for element_label, page_url, label_text in (
-            session.query(ElementLabel, Page.url, Label.text).join(Page)
+    labeled = defaultdict(dict)
+    for element_label, page_url, label_id, label_text in (
+            session.query(ElementLabel, Page.url, Label.id, Label.text).join(Page).join(Label)
                     .filter(Page.workspace == ws.id)
+                    .filter(Label.id == ElementLabel.label)
                     .all()):
-        labeled.setdefault(page_url, {})[element_label.selector] = {
+        labeled[page_url][element_label.selector] = {
             'selector': element_label.selector,
+            'label_id': label_id,
             'text': label_text,
         }
     return labeled
